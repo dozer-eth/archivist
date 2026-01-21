@@ -1,9 +1,36 @@
 const ARCHIVE_BASE = "https://archive.is/timegate/";
+const ALLOWLIST = ["nytimes.com"];
+const ARCHIVE_HOSTS = new Set(["archive.is", "archive.today"]);
+const lastAutoUrlByTab = new Map();
+
+function isAllowlistedHost(hostname) {
+  const host = hostname.toLowerCase();
+  return ALLOWLIST.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
 
 function buildTimegateUrl(originalUrl) {
   if (!originalUrl) return null;
   // Preserve scheme/slashes while encoding spaces and other unsafe characters.
   return ARCHIVE_BASE + encodeURI(originalUrl);
+}
+
+function shouldAutoArchive(rawUrl) {
+  if (!rawUrl) return false;
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (ARCHIVE_HOSTS.has(url.hostname.toLowerCase())) return false;
+  if (!isAllowlistedHost(url.hostname)) return false;
+
+  const path = url.pathname || "/";
+  if (path === "/" || path === "") return false;
+
+  return true;
 }
 
 function openLatestArchive(tabId, originalUrl) {
@@ -38,4 +65,23 @@ chrome.commands.onCommand.addListener((command) => {
     if (!tab || !tab.id) return;
     openLatestArchive(tab.id, tab.url);
   });
+});
+
+function handleAutoArchive(tabId, rawUrl) {
+  if (!shouldAutoArchive(rawUrl)) return;
+  const lastUrl = lastAutoUrlByTab.get(tabId);
+  if (lastUrl === rawUrl) return;
+  lastAutoUrlByTab.set(tabId, rawUrl);
+  openLatestArchive(tabId, rawUrl);
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (!changeInfo.url) return;
+  handleAutoArchive(tabId, changeInfo.url);
+});
+
+chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
+  if (!details || !details.url) return;
+  if (details.frameId !== 0) return;
+  handleAutoArchive(details.tabId, details.url);
 });
