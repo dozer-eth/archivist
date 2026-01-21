@@ -3,12 +3,16 @@ const ARCHIVE_HOSTS = new Set(["archive.is", "archive.today"]);
 const MIXPANEL_TOKEN = "152d139c7fa274e92fdfd1551c63df0b";
 const MIXPANEL_ENDPOINT = "https://api.mixpanel.com/track";
 const MIXPANEL_STORAGE_KEY = "mixpanel_distinct_id";
+const ANALYTICS_STORAGE_KEY = "analytics_enabled";
 const lastAutoUrlByTab = new Map();
 const pendingAutoArchiveByTab = new Map();
 let allowlist = [];
 let defaultAllowlist = [];
 let mixpanelDistinctId = null;
 let allowlistReady = false;
+let analyticsEnabled = true;
+let analyticsReady = false;
+let analyticsLoadPromise = null;
 
 function base64EncodeJson(payload) {
   const json = JSON.stringify(payload);
@@ -41,28 +45,54 @@ function getMixpanelDistinctId() {
   });
 }
 
+function loadAnalyticsSetting() {
+  if (analyticsLoadPromise) return analyticsLoadPromise;
+  analyticsLoadPromise = new Promise((resolve) => {
+    chrome.storage.sync.get({ [ANALYTICS_STORAGE_KEY]: true }, (data) => {
+      analyticsEnabled = Boolean(data[ANALYTICS_STORAGE_KEY]);
+      analyticsReady = true;
+      resolve(analyticsEnabled);
+    });
+  });
+  return analyticsLoadPromise;
+}
+
+function ensureAnalyticsEnabled() {
+  if (analyticsReady) return Promise.resolve(analyticsEnabled);
+  return loadAnalyticsSetting();
+}
+
+function clearMixpanelDistinctId() {
+  mixpanelDistinctId = null;
+  chrome.storage.local.remove(MIXPANEL_STORAGE_KEY, () => {});
+}
+
 function trackEvent(eventName, properties) {
   if (!MIXPANEL_TOKEN) return Promise.resolve();
-  return getMixpanelDistinctId()
-    .then((distinctId) => {
-      const payload = {
-        event: eventName,
-        properties: {
-          token: MIXPANEL_TOKEN,
-          distinct_id: distinctId,
-          time: Date.now(),
-          extension_version: chrome.runtime.getManifest().version,
-          ...properties
-        }
-      };
-      const body = new URLSearchParams({
-        data: base64EncodeJson(payload)
-      });
-      return fetch(MIXPANEL_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body,
-        keepalive: true
+  return ensureAnalyticsEnabled()
+    .then((enabled) => {
+      if (!enabled) return undefined;
+      return getMixpanelDistinctId().then((distinctId) => {
+        const payload = {
+          event: eventName,
+          properties: {
+            token: MIXPANEL_TOKEN,
+            distinct_id: distinctId,
+            ip: 1,
+            time: Date.now(),
+            extension_version: chrome.runtime.getManifest().version,
+            ...properties
+          }
+        };
+        const body = new URLSearchParams({
+          data: base64EncodeJson(payload)
+        });
+        return fetch(MIXPANEL_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body,
+          keepalive: true
+        });
       });
     })
     .catch(() => undefined);
@@ -314,8 +344,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "sync" || !changes.allowlist) return;
-  allowlist = normalizeAllowlist(changes.allowlist.newValue);
+  if (areaName !== "sync") return;
+  if (changes.allowlist) {
+    allowlist = normalizeAllowlist(changes.allowlist.newValue);
+  }
+  if (changes[ANALYTICS_STORAGE_KEY]) {
+    analyticsEnabled = Boolean(changes[ANALYTICS_STORAGE_KEY].newValue);
+    analyticsReady = true;
+    if (!analyticsEnabled) {
+      clearMixpanelDistinctId();
+    }
+  }
 });
 
 loadDefaultAllowlist(loadAllowlist);
+loadAnalyticsSetting();

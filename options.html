@@ -38,6 +38,16 @@
         padding: 6px 0;
         border-bottom: 1px solid #ddd;
       }
+      hr {
+        border: 0;
+        border-top: 1px solid #ddd;
+        margin: 16px 0;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
       .empty {
         color: #666;
         margin: 8px 0 12px;
@@ -53,6 +63,11 @@
     <div id="empty" class="empty" hidden>No domains in allowlist.</div>
     <ul id="domain-list"></ul>
     <button id="reset">Reset to defaults</button>
+    <hr />
+    <label>
+      <input id="analytics-toggle" type="checkbox" />
+      Share anonymous usage analytics to help improve the extension
+    </label>
 
     <script src="options.js"></script>
   </body>

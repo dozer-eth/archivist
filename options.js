@@ -3,9 +3,11 @@ const input = document.getElementById("domain-input");
 const listEl = document.getElementById("domain-list");
 const emptyEl = document.getElementById("empty");
 const resetBtn = document.getElementById("reset");
+const analyticsToggle = document.getElementById("analytics-toggle");
 
 let currentAllowlist = [];
 let defaultAllowlist = [];
+const ANALYTICS_STORAGE_KEY = "analytics_enabled";
 
 function normalizeDomain(value) {
   if (!value) return null;
@@ -78,6 +80,10 @@ resetBtn.addEventListener("click", () => {
   saveAllowlist(defaultAllowlist, "options");
 });
 
+analyticsToggle.addEventListener("change", () => {
+  chrome.storage.sync.set({ [ANALYTICS_STORAGE_KEY]: analyticsToggle.checked });
+});
+
 function loadDefaultAllowlist(callback) {
   fetch(chrome.runtime.getURL("defaults.json"))
     .then((res) => res.json())
@@ -92,8 +98,12 @@ function loadDefaultAllowlist(callback) {
 }
 
 loadDefaultAllowlist(() => {
-  chrome.storage.sync.get({ allowlist: defaultAllowlist }, (data) => {
+  chrome.storage.sync.get(
+    { allowlist: defaultAllowlist, [ANALYTICS_STORAGE_KEY]: true },
+    (data) => {
     currentAllowlist = normalizeAllowlist(data.allowlist);
+    analyticsToggle.checked = Boolean(data[ANALYTICS_STORAGE_KEY]);
     renderList();
-  });
+    }
+  );
 });
