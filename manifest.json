@@ -3,8 +3,8 @@
   "name": "Archivist",
   "version": "0.1.0",
   "description": "Automatically open archive.is snapshots",
-  "permissions": ["activeTab", "contextMenus", "tabs", "webNavigation", "storage"],
-  "host_permissions": ["https://api.mixpanel.com/*"],
+  "permissions": ["contextMenus", "tabs", "webNavigation", "storage"],
+  "host_permissions": ["https://api.mixpanel.com/track"],
   "action": {
     "default_title": "Automatically open archive.is snapshots",
     "default_icon": {
