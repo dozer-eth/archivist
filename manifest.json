@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Open in Archive.is (Latest)",
+  "version": "0.1.0",
+  "description": "Open the latest archive.is snapshot of the current page.",
+  "permissions": ["activeTab", "contextMenus"],
+  "action": {
+    "default_title": "Open latest archive.is snapshot"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
