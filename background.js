@@ -30,3 +30,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   const url = info.linkUrl || tab.url;
   openLatestArchive(tab.id, url);
 });
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== "open-latest-archive") return;
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs && tabs[0];
+    if (!tab || !tab.id) return;
+    openLatestArchive(tab.id, tab.url);
+  });
+});

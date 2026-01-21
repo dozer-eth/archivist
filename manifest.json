@@ -9,5 +9,13 @@
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "commands": {
+    "open-latest-archive": {
+      "suggested_key": {
+        "mac": "Command+Shift+U"
+      },
+      "description": "Open latest archive.is snapshot"
+    }
   }
 }
