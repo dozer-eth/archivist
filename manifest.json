@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Archiver",
+  "name": "Archivist",
   "version": "0.1.0",
-  "description": "Open the latest archive.is snapshot of the current page.",
+  "description": "Automatically open archive.is snapshots",
   "permissions": ["activeTab", "contextMenus", "tabs", "webNavigation", "storage"],
   "action": {
-    "default_title": "Open latest archive.is snapshot"
+    "default_title": "Automatically open archive.is snapshots"
   },
   "background": {
     "service_worker": "background.js"
