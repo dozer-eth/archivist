@@ -1,8 +1,80 @@
 const ARCHIVE_BASE = "https://archive.is/newest/";
 const ARCHIVE_HOSTS = new Set(["archive.is", "archive.today"]);
+const MIXPANEL_TOKEN = "152d139c7fa274e92fdfd1551c63df0b";
+const MIXPANEL_ENDPOINT = "https://api.mixpanel.com/track";
+const MIXPANEL_STORAGE_KEY = "mixpanel_distinct_id";
 const lastAutoUrlByTab = new Map();
 let allowlist = [];
 let defaultAllowlist = [];
+let mixpanelDistinctId = null;
+
+function base64EncodeJson(payload) {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function getMixpanelDistinctId() {
+  if (mixpanelDistinctId) return Promise.resolve(mixpanelDistinctId);
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ [MIXPANEL_STORAGE_KEY]: null }, (data) => {
+      let id = data[MIXPANEL_STORAGE_KEY];
+      if (!id) {
+        id = crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        chrome.storage.local.set({ [MIXPANEL_STORAGE_KEY]: id }, () => {
+          mixpanelDistinctId = id;
+          resolve(id);
+        });
+        return;
+      }
+      mixpanelDistinctId = id;
+      resolve(id);
+    });
+  });
+}
+
+function trackEvent(eventName, properties) {
+  if (!MIXPANEL_TOKEN) return Promise.resolve();
+  return getMixpanelDistinctId()
+    .then((distinctId) => {
+      const payload = {
+        event: eventName,
+        properties: {
+          token: MIXPANEL_TOKEN,
+          distinct_id: distinctId,
+          time: Date.now(),
+          extension_version: chrome.runtime.getManifest().version,
+          ...properties
+        }
+      };
+      const body = new URLSearchParams({
+        data: base64EncodeJson(payload)
+      });
+      return fetch(MIXPANEL_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+        keepalive: true
+      });
+    })
+    .catch(() => undefined);
+}
+
+function trackDomainChange(domain, action, source) {
+  if (!domain) return Promise.resolve();
+  const eventName = action === "remove" ? "domain_removed" : "domain_added";
+  return trackEvent(eventName, {
+    domain,
+    source,
+    list_type: "allowlist"
+  });
+}
 
 function isAllowlistedHost(hostname) {
   const host = hostname.toLowerCase();
@@ -140,14 +212,20 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!host) return;
   if (info.menuItemId === "allowlist-domain") {
     const domain = normalizeAllowlistDomain(host);
-    setAllowlist([...allowlist, domain]);
-    updateContextMenusForUrl(tab.url);
+    if (!allowlist.includes(domain)) {
+      setAllowlist([...allowlist, domain]);
+      trackDomainChange(domain, "add", "context_menu");
+      updateContextMenusForUrl(tab.url);
+    }
     return;
   }
   if (info.menuItemId === "unallowlist-domain") {
     const domain = normalizeAllowlistDomain(host);
-    setAllowlist(allowlist.filter((entry) => entry !== domain));
-    updateContextMenusForUrl(tab.url);
+    if (allowlist.includes(domain)) {
+      setAllowlist(allowlist.filter((entry) => entry !== domain));
+      trackDomainChange(domain, "remove", "context_menu");
+      updateContextMenusForUrl(tab.url);
+    }
   }
 });
 
@@ -192,6 +270,20 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
     if (!tab || !tab.url) return;
     updateContextMenusForUrl(tab.url);
   });
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== "track-domain-changes") return;
+  const added = Array.isArray(message.added) ? message.added : [];
+  const removed = Array.isArray(message.removed) ? message.removed : [];
+  const source = message.source || "options";
+  const tasks = [];
+  added.forEach((domain) => tasks.push(trackDomainChange(domain, "add", source)));
+  removed.forEach((domain) => tasks.push(trackDomainChange(domain, "remove", source)));
+  Promise.all(tasks)
+    .then(() => sendResponse({ ok: true }))
+    .catch(() => sendResponse({ ok: false }));
+  return true;
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

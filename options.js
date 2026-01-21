@@ -43,25 +43,39 @@ function renderList() {
   });
 }
 
-function saveAllowlist(next) {
-  currentAllowlist = normalizeAllowlist(next);
+function sendDomainChanges(added, removed, source) {
+  if (added.length === 0 && removed.length === 0) return;
+  chrome.runtime.sendMessage({
+    type: "track-domain-changes",
+    added,
+    removed,
+    source
+  });
+}
+
+function saveAllowlist(next, source = "options") {
+  const normalized = normalizeAllowlist(next);
+  const added = normalized.filter((entry) => !currentAllowlist.includes(entry));
+  const removed = currentAllowlist.filter((entry) => !normalized.includes(entry));
+  currentAllowlist = normalized;
   chrome.storage.sync.set({ allowlist: currentAllowlist }, renderList);
+  sendDomainChanges(added, removed, source);
 }
 
 function removeDomain(domain) {
-  saveAllowlist(currentAllowlist.filter((entry) => entry !== domain));
+  saveAllowlist(currentAllowlist.filter((entry) => entry !== domain), "options");
 }
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   const domain = normalizeDomain(input.value);
   if (!domain) return;
-  saveAllowlist([...currentAllowlist, domain]);
+  saveAllowlist([...currentAllowlist, domain], "options");
   input.value = "";
 });
 
 resetBtn.addEventListener("click", () => {
-  saveAllowlist(defaultAllowlist);
+  saveAllowlist(defaultAllowlist, "options");
 });
 
 function loadDefaultAllowlist(callback) {
