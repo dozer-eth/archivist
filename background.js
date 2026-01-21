@@ -1,14 +1,15 @@
-const ARCHIVE_BASE = "https://archive.is/timegate/";
-const ALLOWLIST = ["nytimes.com", "wsj.com", "wired.com"];
+const ARCHIVE_BASE = "https://archive.is/newest/";
 const ARCHIVE_HOSTS = new Set(["archive.is", "archive.today"]);
 const lastAutoUrlByTab = new Map();
+let allowlist = [];
+let defaultAllowlist = [];
 
 function isAllowlistedHost(hostname) {
   const host = hostname.toLowerCase();
-  return ALLOWLIST.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  return allowlist.some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
-function buildTimegateUrl(originalUrl) {
+function buildNewestUrl(originalUrl) {
   if (!originalUrl) return null;
   // Preserve scheme/slashes while encoding spaces and other unsafe characters.
   return ARCHIVE_BASE + encodeURI(originalUrl);
@@ -33,8 +34,64 @@ function shouldAutoArchive(rawUrl) {
   return true;
 }
 
+function normalizeAllowlist(list) {
+  if (!Array.isArray(list)) return [];
+  return [...new Set(list.map((d) => d.trim().toLowerCase()).filter(Boolean))];
+}
+
+function loadDefaultAllowlist(callback) {
+  fetch(chrome.runtime.getURL("defaults.json"))
+    .then((res) => res.json())
+    .then((data) => {
+      defaultAllowlist = normalizeAllowlist(data);
+      callback();
+    })
+    .catch(() => {
+      defaultAllowlist = [];
+      callback();
+    });
+}
+
+function loadAllowlist() {
+  chrome.storage.sync.get({ allowlist: defaultAllowlist }, (data) => {
+    allowlist = normalizeAllowlist(data.allowlist);
+  });
+}
+
+function setAllowlist(next) {
+  allowlist = normalizeAllowlist(next);
+  chrome.storage.sync.set({ allowlist });
+}
+
+function getHostname(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeAllowlistDomain(host) {
+  if (!host) return null;
+  return host.startsWith("www.") ? host.slice(4) : host;
+}
+
+function updateContextMenusForUrl(rawUrl) {
+  const host = getHostname(rawUrl);
+  const isAllowed = host ? isAllowlistedHost(host) : false;
+  const canToggle = Boolean(host);
+  chrome.contextMenus.update("allowlist-domain", {
+    visible: canToggle && !isAllowed
+  });
+  chrome.contextMenus.update("unallowlist-domain", {
+    visible: canToggle && isAllowed
+  });
+}
+
 function openLatestArchive(tabId, originalUrl) {
-  const target = buildTimegateUrl(originalUrl);
+  const target = buildNewestUrl(originalUrl);
   if (!target) return;
   chrome.tabs.update(tabId, { url: target });
 }
@@ -50,12 +107,48 @@ chrome.runtime.onInstalled.addListener(() => {
     title: "Open latest archive.is snapshot",
     contexts: ["page", "link"]
   });
+  chrome.contextMenus.create({
+    id: "allowlist-domain",
+    title: "Always redirect pages on this domain to archived snapshot",
+    contexts: ["page"],
+    visible: false
+  });
+  chrome.contextMenus.create({
+    id: "unallowlist-domain",
+    title: "Stop redirecting pages on this domain to archived snapshot",
+    contexts: ["page"],
+    visible: false
+  });
+
+  loadDefaultAllowlist(() => {
+    chrome.storage.sync.get({ allowlist: defaultAllowlist }, (data) => {
+      allowlist = normalizeAllowlist(data.allowlist);
+      updateContextMenusForUrl("");
+    });
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab || !tab.id) return;
   const url = info.linkUrl || tab.url;
-  openLatestArchive(tab.id, url);
+  if (info.menuItemId === "open-archive-latest") {
+    openLatestArchive(tab.id, url);
+    return;
+  }
+
+  const host = getHostname(tab.url);
+  if (!host) return;
+  if (info.menuItemId === "allowlist-domain") {
+    const domain = normalizeAllowlistDomain(host);
+    setAllowlist([...allowlist, domain]);
+    updateContextMenusForUrl(tab.url);
+    return;
+  }
+  if (info.menuItemId === "unallowlist-domain") {
+    const domain = normalizeAllowlistDomain(host);
+    setAllowlist(allowlist.filter((entry) => entry !== domain));
+    updateContextMenusForUrl(tab.url);
+  }
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -78,15 +171,32 @@ function handleAutoArchive(tabId, rawUrl) {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url) {
     handleAutoArchive(tabId, changeInfo.url);
+    updateContextMenusForUrl(changeInfo.url);
     return;
   }
   if (!tab || !tab.url) return;
   if (changeInfo.status !== "loading" && changeInfo.status !== "complete") return;
   handleAutoArchive(tabId, tab.url);
+  updateContextMenusForUrl(tab.url);
 });
 
 chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
   if (!details || !details.url) return;
   if (details.frameId !== 0) return;
   handleAutoArchive(details.tabId, details.url);
+  updateContextMenusForUrl(details.url);
 });
+
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  chrome.tabs.get(activeInfo.tabId, (tab) => {
+    if (!tab || !tab.url) return;
+    updateContextMenusForUrl(tab.url);
+  });
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "sync" || !changes.allowlist) return;
+  allowlist = normalizeAllowlist(changes.allowlist.newValue);
+});
+
+loadDefaultAllowlist(loadAllowlist);

@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Archiver Options</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 16px;
+        max-width: 640px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 12px;
+      }
+      form {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      input[type="text"] {
+        flex: 1;
+        padding: 6px 8px;
+      }
+      button {
+        padding: 6px 10px;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 12px;
+      }
+      li {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 0;
+        border-bottom: 1px solid #ddd;
+      }
+      .empty {
+        color: #666;
+        margin: 8px 0 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Always redirect pages on these domains to archived snapshot:</h1>
+    <form id="add-form">
+      <input id="domain-input" type="text" placeholder="example.com" autocomplete="off" />
+      <button type="submit">Add</button>
+    </form>
+    <div id="empty" class="empty" hidden>No domains in allowlist.</div>
+    <ul id="domain-list"></ul>
+    <button id="reset">Reset to defaults</button>
+
+    <script src="options.js"></script>
+  </body>
+</html>
