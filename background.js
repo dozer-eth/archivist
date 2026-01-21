@@ -1,5 +1,5 @@
 const ARCHIVE_BASE = "https://archive.is/timegate/";
-const ALLOWLIST = ["nytimes.com"];
+const ALLOWLIST = ["nytimes.com", "wsj.com", "wired.com"];
 const ARCHIVE_HOSTS = new Set(["archive.is", "archive.today"]);
 const lastAutoUrlByTab = new Map();
 
@@ -75,9 +75,14 @@ function handleAutoArchive(tabId, rawUrl) {
   openLatestArchive(tabId, rawUrl);
 }
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (!changeInfo.url) return;
-  handleAutoArchive(tabId, changeInfo.url);
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url) {
+    handleAutoArchive(tabId, changeInfo.url);
+    return;
+  }
+  if (!tab || !tab.url) return;
+  if (changeInfo.status !== "loading" && changeInfo.status !== "complete") return;
+  handleAutoArchive(tabId, tab.url);
 });
 
 chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
