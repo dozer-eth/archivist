@@ -4,9 +4,11 @@ const MIXPANEL_TOKEN = "152d139c7fa274e92fdfd1551c63df0b";
 const MIXPANEL_ENDPOINT = "https://api.mixpanel.com/track";
 const MIXPANEL_STORAGE_KEY = "mixpanel_distinct_id";
 const lastAutoUrlByTab = new Map();
+const pendingAutoArchiveByTab = new Map();
 let allowlist = [];
 let defaultAllowlist = [];
 let mixpanelDistinctId = null;
+let allowlistReady = false;
 
 function base64EncodeJson(payload) {
   const json = JSON.stringify(payload);
@@ -127,6 +129,8 @@ function loadDefaultAllowlist(callback) {
 function loadAllowlist() {
   chrome.storage.sync.get({ allowlist: defaultAllowlist }, (data) => {
     allowlist = normalizeAllowlist(data.allowlist);
+    allowlistReady = true;
+    flushPendingAutoArchives();
   });
 }
 
@@ -238,7 +242,7 @@ chrome.commands.onCommand.addListener((command) => {
   });
 });
 
-function handleAutoArchive(tabId, rawUrl) {
+function attemptAutoArchive(tabId, rawUrl) {
   if (!shouldAutoArchive(rawUrl)) return;
   const lastUrl = lastAutoUrlByTab.get(tabId);
   if (lastUrl === rawUrl) return;
@@ -246,16 +250,39 @@ function handleAutoArchive(tabId, rawUrl) {
   openLatestArchive(tabId, rawUrl);
 }
 
+function handleAutoArchive(tabId, rawUrl) {
+  if (!rawUrl) return;
+  if (!allowlistReady) {
+    pendingAutoArchiveByTab.set(tabId, rawUrl);
+    return;
+  }
+  attemptAutoArchive(tabId, rawUrl);
+}
+
+function flushPendingAutoArchives() {
+  if (!allowlistReady || pendingAutoArchiveByTab.size === 0) return;
+  for (const [tabId, pendingUrl] of pendingAutoArchiveByTab.entries()) {
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) return;
+      const currentUrl = tab.pendingUrl || tab.url;
+      if (!currentUrl || currentUrl !== pendingUrl) return;
+      attemptAutoArchive(tabId, pendingUrl);
+    });
+  }
+  pendingAutoArchiveByTab.clear();
+}
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const candidateUrl = changeInfo.url || (tab && (tab.pendingUrl || tab.url));
+  if (!candidateUrl) return;
   if (changeInfo.url) {
     handleAutoArchive(tabId, changeInfo.url);
     updateContextMenusForUrl(changeInfo.url);
     return;
   }
-  if (!tab || !tab.url) return;
   if (changeInfo.status !== "loading" && changeInfo.status !== "complete") return;
-  handleAutoArchive(tabId, tab.url);
-  updateContextMenusForUrl(tab.url);
+  handleAutoArchive(tabId, candidateUrl);
+  updateContextMenusForUrl(candidateUrl);
 });
 
 chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
