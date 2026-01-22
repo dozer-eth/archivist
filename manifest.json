@@ -27,7 +27,11 @@
   "commands": {
     "open-latest-archive": {
       "suggested_key": {
-        "mac": "Command+Shift+U"
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+U",
+        "windows": "Ctrl+Shift+Y",
+        "linux": "Ctrl+Shift+Y",
+        "chromeos": "Ctrl+Shift+Y"
       },
       "description": "Open latest archive.is snapshot"
     }
