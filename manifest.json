@@ -28,7 +28,7 @@
     "open-latest-archive": {
       "suggested_key": {
         "default": "Ctrl+Shift+Y",
-        "mac": "Command+Shift+U",
+        "mac": "Command+Shift+Y",
         "windows": "Ctrl+Shift+Y",
         "linux": "Ctrl+Shift+Y",
         "chromeos": "Ctrl+Shift+Y"
