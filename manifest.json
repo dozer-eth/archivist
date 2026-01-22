@@ -23,17 +23,5 @@
   "background": {
     "service_worker": "background.js"
   },
-  "options_page": "options.html",
-  "commands": {
-    "open-latest-archive": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+Y",
-        "mac": "Command+Shift+Y",
-        "windows": "Ctrl+Shift+Y",
-        "linux": "Ctrl+Shift+Y",
-        "chromeos": "Ctrl+Shift+Y"
-      },
-      "description": "Open latest archive.is snapshot"
-    }
-  }
+  "options_page": "options.html"
 }
