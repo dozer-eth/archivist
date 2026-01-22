@@ -48,6 +48,11 @@
         align-items: center;
         gap: 8px;
       }
+      .helper {
+        margin: 0 0 8px;
+        color: #555;
+        font-size: 13px;
+      }
       .empty {
         color: #666;
         margin: 8px 0 12px;
@@ -63,6 +68,15 @@
     <div id="empty" class="empty" hidden>No domains in allowlist.</div>
     <ul id="domain-list"></ul>
     <button id="reset">Reset to defaults</button>
+    <hr />
+    <h1>Exclude paths from auto-redirect:</h1>
+    <p class="helper">Use a path prefix like <strong>example.com/games</strong>. Any pages under that path will not be redirected.</p>
+    <form id="exclusion-form">
+      <input id="exclusion-input" type="text" placeholder="example.com/games" autocomplete="off" />
+      <button type="submit">Add</button>
+    </form>
+    <div id="exclusion-empty" class="empty" hidden>No exclusions yet.</div>
+    <ul id="exclusion-list"></ul>
     <hr />
     <label>
       <input id="analytics-toggle" type="checkbox" />

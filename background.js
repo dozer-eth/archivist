@@ -4,12 +4,16 @@ const MIXPANEL_TOKEN = "152d139c7fa274e92fdfd1551c63df0b";
 const MIXPANEL_ENDPOINT = "https://api.mixpanel.com/track?ip=0";
 const MIXPANEL_STORAGE_KEY = "mixpanel_distinct_id";
 const ANALYTICS_STORAGE_KEY = "analytics_enabled";
+const EXCLUSIONS_STORAGE_KEY = "exclusions";
 const lastAutoUrlByTab = new Map();
 const pendingAutoArchiveByTab = new Map();
 let allowlist = [];
 let defaultAllowlist = [];
+let defaultExclusions = [];
+let exclusions = [];
 let mixpanelDistinctId = null;
 let allowlistReady = false;
+let exclusionsReady = false;
 let analyticsEnabled = true;
 let analyticsReady = false;
 let analyticsLoadPromise = null;
@@ -130,6 +134,7 @@ function shouldAutoArchive(rawUrl) {
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   if (ARCHIVE_HOSTS.has(url.hostname.toLowerCase())) return false;
   if (!isAllowlistedHost(url.hostname)) return false;
+  if (isExcludedUrl(url)) return false;
 
   const path = url.pathname || "/";
   if (path === "/" || path === "") return false;
@@ -142,8 +147,64 @@ function normalizeAllowlist(list) {
   return [...new Set(list.map((d) => d.trim().toLowerCase()).filter(Boolean))];
 }
 
+function normalizeExclusionEntry(value) {
+  if (!value) return null;
+  let trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+  trimmed = trimmed.replace(/^[a-z]+:\/\//, "");
+  trimmed = trimmed.replace(/^\/\//, "");
+  trimmed = trimmed.split("#")[0].split("?")[0];
+  trimmed = trimmed.replace(/\*+$/, "");
+  const firstSlash = trimmed.indexOf("/");
+  if (firstSlash === -1) return null;
+  let domain = trimmed.slice(0, firstSlash);
+  let path = trimmed.slice(firstSlash);
+  if (!domain || !path) return null;
+  if (domain.startsWith("www.")) domain = domain.slice(4);
+  if (!path.startsWith("/")) path = `/${path}`;
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+  return `${domain}${path}`;
+}
+
+function normalizeExclusions(list) {
+  if (!Array.isArray(list)) return [];
+  const cleaned = list.map((entry) => normalizeExclusionEntry(entry)).filter(Boolean);
+  return [...new Set(cleaned)];
+}
+
+function splitExclusionEntry(entry) {
+  if (!entry) return null;
+  const firstSlash = entry.indexOf("/");
+  if (firstSlash === -1) return null;
+  const domain = entry.slice(0, firstSlash);
+  const path = entry.slice(firstSlash) || "/";
+  if (!domain || !path) return null;
+  return { domain, path };
+}
+
+function pathMatchesPrefix(pathname, prefix) {
+  const path = pathname || "/";
+  if (prefix === "/") return true;
+  if (path === prefix) return true;
+  if (prefix.endsWith("/")) return path.startsWith(prefix);
+  return path.startsWith(`${prefix}/`);
+}
+
+function isExcludedUrl(url) {
+  if (!exclusions.length) return false;
+  const host = url.hostname.toLowerCase();
+  const path = url.pathname || "/";
+  for (const entry of exclusions) {
+    const parsed = splitExclusionEntry(entry);
+    if (!parsed) continue;
+    if (host !== parsed.domain && !host.endsWith(`.${parsed.domain}`)) continue;
+    if (pathMatchesPrefix(path, parsed.path)) return true;
+  }
+  return false;
+}
+
 function loadDefaultAllowlist(callback) {
-  fetch(chrome.runtime.getURL("defaults.json"))
+  fetch(chrome.runtime.getURL("defaults-allowlist.json"))
     .then((res) => res.json())
     .then((data) => {
       defaultAllowlist = normalizeAllowlist(data);
@@ -155,10 +216,31 @@ function loadDefaultAllowlist(callback) {
     });
 }
 
+function loadDefaultExclusions(callback) {
+  fetch(chrome.runtime.getURL("defaults-exclusions.json"))
+    .then((res) => res.json())
+    .then((data) => {
+      defaultExclusions = normalizeExclusions(data);
+      callback();
+    })
+    .catch(() => {
+      defaultExclusions = [];
+      callback();
+    });
+}
+
 function loadAllowlist() {
   chrome.storage.sync.get({ allowlist: defaultAllowlist }, (data) => {
     allowlist = normalizeAllowlist(data.allowlist);
     allowlistReady = true;
+    flushPendingAutoArchives();
+  });
+}
+
+function loadExclusions() {
+  chrome.storage.sync.get({ [EXCLUSIONS_STORAGE_KEY]: defaultExclusions }, (data) => {
+    exclusions = normalizeExclusions(data[EXCLUSIONS_STORAGE_KEY]);
+    exclusionsReady = true;
     flushPendingAutoArchives();
   });
 }
@@ -231,6 +313,11 @@ chrome.runtime.onInstalled.addListener(() => {
       updateContextMenusForUrl("");
     });
   });
+  loadDefaultExclusions(() => {
+    chrome.storage.sync.get({ [EXCLUSIONS_STORAGE_KEY]: defaultExclusions }, (data) => {
+      exclusions = normalizeExclusions(data[EXCLUSIONS_STORAGE_KEY]);
+    });
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -262,15 +349,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-chrome.commands.onCommand.addListener((command) => {
-  if (command !== "open-latest-archive") return;
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    const tab = tabs && tabs[0];
-    if (!tab || !tab.id) return;
-    openLatestArchive(tab.id, tab.url);
-  });
-});
-
 function attemptAutoArchive(tabId, rawUrl) {
   if (!shouldAutoArchive(rawUrl)) return;
   const lastUrl = lastAutoUrlByTab.get(tabId);
@@ -281,7 +359,7 @@ function attemptAutoArchive(tabId, rawUrl) {
 
 function handleAutoArchive(tabId, rawUrl) {
   if (!rawUrl) return;
-  if (!allowlistReady) {
+  if (!allowlistReady || !exclusionsReady) {
     pendingAutoArchiveByTab.set(tabId, rawUrl);
     return;
   }
@@ -289,7 +367,7 @@ function handleAutoArchive(tabId, rawUrl) {
 }
 
 function flushPendingAutoArchives() {
-  if (!allowlistReady || pendingAutoArchiveByTab.size === 0) return;
+  if (!allowlistReady || !exclusionsReady || pendingAutoArchiveByTab.size === 0) return;
   for (const [tabId, pendingUrl] of pendingAutoArchiveByTab.entries()) {
     chrome.tabs.get(tabId, (tab) => {
       if (chrome.runtime.lastError || !tab) return;
@@ -347,6 +425,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes.allowlist) {
     allowlist = normalizeAllowlist(changes.allowlist.newValue);
   }
+  if (changes[EXCLUSIONS_STORAGE_KEY]) {
+    exclusions = normalizeExclusions(changes[EXCLUSIONS_STORAGE_KEY].newValue);
+  }
   if (changes[ANALYTICS_STORAGE_KEY]) {
     analyticsEnabled = Boolean(changes[ANALYTICS_STORAGE_KEY].newValue);
     analyticsReady = true;
@@ -357,4 +438,5 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 loadDefaultAllowlist(loadAllowlist);
+loadDefaultExclusions(loadExclusions);
 loadAnalyticsSetting();
