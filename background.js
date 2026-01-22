@@ -306,6 +306,11 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ["page"],
     visible: false
   });
+  chrome.contextMenus.create({
+    id: "open-options",
+    title: "Options",
+    contexts: ["page", "link"]
+  });
 
   loadDefaultAllowlist(() => {
     chrome.storage.sync.get({ allowlist: defaultAllowlist }, (data) => {
@@ -325,6 +330,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   const url = info.linkUrl || tab.url;
   if (info.menuItemId === "open-archive-latest") {
     openLatestArchive(tab.id, url);
+    return;
+  }
+  if (info.menuItemId === "open-options") {
+    chrome.runtime.openOptionsPage();
     return;
   }
 
