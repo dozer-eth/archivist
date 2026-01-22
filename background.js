@@ -1,7 +1,7 @@
 const ARCHIVE_BASE = "https://archive.is/newest/";
 const ARCHIVE_HOSTS = new Set(["archive.is", "archive.today"]);
 const MIXPANEL_TOKEN = "152d139c7fa274e92fdfd1551c63df0b";
-const MIXPANEL_ENDPOINT = "https://api.mixpanel.com/track";
+const MIXPANEL_ENDPOINT = "https://api.mixpanel.com/track?ip=1";
 const MIXPANEL_STORAGE_KEY = "mixpanel_distinct_id";
 const ANALYTICS_STORAGE_KEY = "analytics_enabled";
 const lastAutoUrlByTab = new Map();
@@ -78,7 +78,6 @@ function trackEvent(eventName, properties) {
           properties: {
             token: MIXPANEL_TOKEN,
             distinct_id: distinctId,
-            ip: 1,
             time: Date.now(),
             extension_version: chrome.runtime.getManifest().version,
             ...properties
